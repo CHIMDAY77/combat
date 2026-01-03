@@ -1,31 +1,35 @@
+-- Đợi game load hoàn toàn
+if not game:IsLoaded() then game.Loaded:Wait() end
+
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
-
-local player = Players.LocalPlayer
+local player = game:GetService("Players").LocalPlayer
 local camera = workspace.CurrentCamera
 
 local enabled = false
 local holdingRightClick = false
-local lastMousePos = nil
+local lastMousePos = Vector2.new(0,0)
+local sensitivity = 0.4 
 
--- Cài đặt
-local sensitivity = 0.4 -- Độ nhạy xoay (tăng nếu thấy xoay chậm)
+-- Hàm ép trạng thái chuột
+local function setMouseState(state)
+    if state then
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    end
+end
 
--- Hàm bật/tắt bằng phím K
-UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then return end
+-- Bật/Tắt bằng phím K
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
     if input.KeyCode == Enum.KeyCode.K then
         enabled = not enabled
-        if enabled then
-            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-            UserInputService.MouseIconEnabled = true
-        end
-        print("Chế độ Chuột Tự Do: " .. (enabled and "BẬT" or "TẮT"))
+        setMouseState(enabled)
+        print("Hybrid Mouse: " .. (enabled and "ON" or "OFF"))
     end
 end)
 
--- Theo dõi nhấn chuột phải
+-- Xử lý nhấn giữ chuột phải
 UserInputService.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         holdingRightClick = true
@@ -36,48 +40,38 @@ end)
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         holdingRightClick = false
-        lastMousePos = nil
     end
 end)
 
--- Vòng lặp xử lý Camera và Chuột
-RunService.RenderStepped:Connect(function()
-    if enabled then
-        -- Luôn ép hiện chuột dù game có script khóa chuột
-        UserInputService.MouseIconEnabled = true
-        if not holdingRightClick then
-            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        end
-
-        -- Xử lý xoay camera thủ công khi giữ chuột phải
-        if holdingRightClick then
-            local currentPos = UserInputService:GetMouseLocation()
-            if lastMousePos then
-                local delta = currentPos - lastMousePos
-                
-                -- Xoay Camera dựa trên khoảng cách di chuyển của chuột trên màn hình
-                local rotationX = -delta.X * sensitivity
-                local rotationY = -delta.Y * sensitivity
-                
-                -- Áp dụng góc xoay mới
-                local currentCFrame = camera.CFrame
-                local newRotation = CFrame.Angles(0, math.rad(rotationX), 0) * currentCFrame * CFrame.Angles(math.rad(rotationY), 0, 0)
-                
-                camera.CFrame = CFrame.new(currentCFrame.Position) * newRotation.Rotation
-            end
-            lastMousePos = currentPos
-        end
-    end
-end)
-
--- Xử lý khi hồi sinh
-player.CharacterAdded:Connect(function()
-    camera = workspace.CurrentCamera
-    task.wait(0.5)
-    if enabled then
+-- Vòng lặp chính: Chạy với ưu tiên cao hơn Camera của game
+RunService:BindToRenderStep("MouseForceFix", Enum.RenderPriority.Camera.Value + 1, function()
+    if not enabled then return end
+    
+    if holdingRightClick then
+        -- Khi xoay: Cho phép khóa tâm tạm thời để lấy Delta chuẩn
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        local currentPos = UserInputService:GetMouseLocation()
+        local delta = currentPos - lastMousePos
+        
+        -- Tính toán xoay Camera thủ công
+        local newCFrame = camera.CFrame * CFrame.Angles(0, math.rad(-delta.X * sensitivity), 0)
+        local verticalRotation = CFrame.Angles(math.rad(-delta.Y * sensitivity), 0, 0)
+        
+        -- Áp dụng CFrame mới và giữ vị trí cũ
+        camera.CFrame = CFrame.new(camera.CFrame.Position) * (newCFrame * verticalRotation).Rotation
+        lastMousePos = currentPos
+    else
+        -- Khi không xoay: Cưỡng bức hiện chuột
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
     end
 end)
 
-print("Script FIX XOAY CAMERA đã sẵn sàng. Nhấn K để dùng!")
+-- Fix khi hồi sinh
+player.CharacterAdded:Connect(function()
+    camera = workspace.CurrentCamera
+    task.wait(0.5)
+    setMouseState(enabled)
+end)
+
+print("--- SCRIPT MOUSE STABLE LOADED ---")
